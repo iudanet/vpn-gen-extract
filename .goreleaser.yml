@@ -5,7 +5,7 @@ project_name: vpn-gen-extract
 before:
   hooks:
     - go mod tidy
-    - go test ./...
+    # Тесты и линтер гоняет job verify в release.yml, здесь не дублируем.
 
 builds:
   - id: vpn-gen-extract

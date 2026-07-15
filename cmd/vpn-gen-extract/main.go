@@ -118,7 +118,8 @@ func readInput(file string, args []string) (string, error) {
 		return "", errors.New("provide either -file or a url argument, not both")
 	}
 	if file != "" {
-		b, err := os.ReadFile(file)
+		// Путь задаёт пользователь через -file: это и есть назначение флага.
+		b, err := os.ReadFile(file) // #nosec G304
 		if err != nil {
 			return "", fmt.Errorf("read %s: %w", file, err)
 		}

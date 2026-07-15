@@ -45,11 +45,12 @@ func Shadowsocks(cfg *config.Config) (string, error) {
 func escapePrefixBytes(prefix string) string {
 	var b strings.Builder
 	for _, r := range prefix {
-		if r > 0xFF {
+		if r < 0 || r > 0xFF {
 			// Руна вне latin-1 не может быть частью байтового префикса.
 			continue
 		}
-		c := byte(r)
+		// Проверка выше гарантирует 0..0xFF, поэтому конверсия безопасна.
+		c := byte(r) // #nosec G115
 		if shouldEscapePrefixByte(c) {
 			fmt.Fprintf(&b, "%%%02X", c)
 			continue

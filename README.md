@@ -96,3 +96,7 @@ TLS ClientHello (`16 03 01 00 A8 01 01`). В JSON каждый байт лежи
 ```bash
 go test ./... -cover
 ```
+
+## Лицензия
+
+[MIT](LICENSE)

@@ -72,7 +72,7 @@ vpn-gen-extract -only cloak     -file url.txt -out cloak.json
 
 | `-only` | Формат | Клиенты |
 |---|---|---|
-| `ss` | `ss://` (SIP002) с `?prefix=` | Outline, shadowsocks-libev |
+| `ss` | `ss://` (SIP002) с `/?outline=1&prefix=` | Outline, Hiddify, VPN4TV |
 | `vless` | `vless://` с Reality | v2rayN, Hiddify, Streisand |
 | `wireguard` | `.conf` для wg-quick | WireGuard, AmneziaWG |
 | `cloak` | JSON | Cloak client |
@@ -80,11 +80,14 @@ vpn-gen-extract -only cloak     -file url.txt -out cloak.json
 ## Про Outline prefix
 
 `shadowsocks.outline.prefix` — байтовая строка, маскирующая первый пакет под
-TLS ClientHello (`16 03 01 00 A8 01 01`). В JSON каждый байт лежит отдельной
-руной, поэтому кодировать его в URL нужно как latin-1: байт `0xA8` обязан
-уехать как `%A8`. Наивный `url.Values.Encode()` выдал бы UTF-8 `%C2%A8` —
-восемь байт вместо семи, и обфускация сломалась бы. За это отвечает
-`escapePrefixBytes` в `internal/link`.
+TLS ClientHello (`16 03 01 00 A8 01 01`). Ссылка всегда несёт путь `/` и маркер
+`outline=1`, а сам префикс едет параметром `prefix=`.
+
+Клиенты Outline (в том числе форки Hiddify — VPN4TV на телевизорах, sing-box
+под капотом) читают значение `prefix` как UTF-8-строку, где каждая руна — один
+байт префикса. Поэтому байт `0xA8` обязан уехать как UTF-8 `%C2%A8`: это делает
+стандартный `url.Values.Encode()` в `internal/link`. Итоговый вид ссылки —
+`ss://…/?outline=1&prefix=%16%03%01%00%C2%A8%01%01#…`.
 
 ## Безопасность
 

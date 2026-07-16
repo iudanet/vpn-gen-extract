@@ -53,13 +53,18 @@ func TestShadowsocks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "chacha20-ietf-poly1305:pw", string(raw))
 
+	// Клиент Outline (форк Hiddify/sing-box) ожидает путь "/" и outline=1.
+	assert.Equal(t, "/", u.Path)
+	assert.Equal(t, "1", u.Query().Get("outline"))
+
 	// Префикс обязан пережить кодирование в URL без потерь.
 	assert.Equal(t, "\x16\x03\x01", u.Query().Get("prefix"))
 }
 
-// Байт 0xA8 из префикса Outline должен ехать как %A8, а не как UTF-8 %C2%A8:
-// иначе подделка TLS ClientHello ломается.
-func TestShadowsocksPrefixHighByteIsNotUTF8Encoded(t *testing.T) {
+// Клиент Outline читает значение prefix как UTF-8-строку, где каждая руна —
+// один байт префикса. Поэтому байт 0xA8 обязан ехать как UTF-8 %C2%A8, а не
+// как latin-1 %A8: именно так его декодирует форк Hiddify (VPN4TV) на теликах.
+func TestShadowsocksPrefixHighByteIsUTF8Encoded(t *testing.T) {
 	cfg := sampleConfig()
 	// Реальный префикс: 16 03 01 00 a8 01 01.
 	cfg.Shadowsocks.Outline.Prefix = "\x16\x03\x01\x00¨\x01\x01"
@@ -67,32 +72,24 @@ func TestShadowsocksPrefixHighByteIsNotUTF8Encoded(t *testing.T) {
 	got, err := Shadowsocks(cfg)
 	require.NoError(t, err)
 
-	assert.Contains(t, got, "prefix=%16%03%01%00%A8%01%01")
-	assert.NotContains(t, got, "%C2%A8")
+	assert.Contains(t, got, "prefix=%16%03%01%00%C2%A8%01%01")
 }
 
-func TestEscapePrefixBytes(t *testing.T) {
-	tests := []struct {
-		name   string
-		prefix string
-		want   string
-	}{
-		{"tls client hello", "\x16\x03\x01\x00¨\x01\x01", "%16%03%01%00%A8%01%01"},
-		{"all high bytes", "\u00ff\u00fe", "%FF%FE"},
-		{"unreserved pass through", "aZ9-_.~", "aZ9-_.~"},
-		{"reserved escaped", "a b&c", "a%20b%26c"},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, escapePrefixBytes(tt.prefix))
-		})
-	}
+// Рабочая ссылка с реального устройства должна воспроизводиться байт-в-байт:
+// /?outline=1&prefix=%16%03%01%00%C2%A8%01%01#<name>.
+func TestShadowsocksMatchesVPN4TVFormat(t *testing.T) {
+	cfg := sampleConfig()
+	cfg.Shadowsocks.Outline.Prefix = "\x16\x03\x01\x00¨\x01\x01"
+
+	got, err := Shadowsocks(cfg)
+	require.NoError(t, err)
+
+	assert.Contains(t, got, "/?outline=1&prefix=%16%03%01%00%C2%A8%01%01#")
 }
 
-// Клиент читает prefix как байты, поэтому декодирование должно вернуть
-// ровно исходные 7 байт, а не 8.
-func TestShadowsocksPrefixDecodesToOriginalBytes(t *testing.T) {
+// Клиент читает prefix как UTF-8: руна U+00A8 после percent-decode остаётся
+// одним code point, поэтому обратный разбор возвращает исходную строку рун.
+func TestShadowsocksPrefixDecodesToRunes(t *testing.T) {
 	cfg := sampleConfig()
 	cfg.Shadowsocks.Outline.Prefix = "\x16\x03\x01\x00¨\x01\x01"
 
@@ -103,8 +100,7 @@ func TestShadowsocksPrefixDecodesToOriginalBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	decoded := u.Query().Get("prefix")
-	assert.Equal(t, []byte{0x16, 0x03, 0x01, 0x00, 0xa8, 0x01, 0x01}, []byte(decoded))
-	assert.Len(t, []byte(decoded), 7)
+	assert.Equal(t, "\x16\x03\x01\x00¨\x01\x01", decoded)
 }
 
 func TestShadowsocksWithoutPrefix(t *testing.T) {
@@ -114,6 +110,8 @@ func TestShadowsocksWithoutPrefix(t *testing.T) {
 	got, err := Shadowsocks(cfg)
 	require.NoError(t, err)
 	assert.NotContains(t, got, "prefix=")
+	// Без префикса всё равно нужен маркер outline=1 и путь "/".
+	assert.Contains(t, got, "/?outline=1")
 }
 
 func TestShadowsocksMissingEndpoint(t *testing.T) {

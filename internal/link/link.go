@@ -14,8 +14,14 @@ import (
 
 // Shadowsocks renders an ss:// link in SIP002 form, usable by Outline.
 //
-// The userinfo is base64url(cipher:password) without padding; the Outline
-// prefix, when present, travels as a ?prefix= query parameter.
+// The userinfo is base64url(cipher:password) without padding. The link always
+// carries the "/" path and outline=1 marker; the Outline prefix, when present,
+// travels as a prefix= query parameter.
+//
+// Форки Hiddify (например VPN4TV на телевизорах, sing-box под капотом) читают
+// значение prefix как UTF-8-строку, где каждая руна — один байт префикса.
+// Поэтому байт 0xA8 обязан ехать как UTF-8 %C2%A8 (это делает стандартный
+// url.Values.Encode), а не как latin-1 %A8.
 func Shadowsocks(cfg *config.Config) (string, error) {
 	ss := cfg.Shadowsocks
 	if ss.Host == "" || ss.Port == 0 {
@@ -25,52 +31,23 @@ func Shadowsocks(cfg *config.Config) (string, error) {
 	userInfo := base64.RawURLEncoding.EncodeToString([]byte(ss.Cipher + ":" + ss.Password))
 	host := net.JoinHostPort(ss.Host, strconv.Itoa(ss.Port))
 
+	// outline=1 — обязательный маркер формата Outline; ключи Encode сортирует
+	// алфавитно, поэтому outline идёт раньше prefix.
+	q := url.Values{}
+	q.Set("outline", "1")
+	if p := ss.Outline.Prefix; p != "" {
+		q.Set("prefix", p)
+	}
+
 	u := &url.URL{
 		Scheme:   "ss",
 		User:     url.User(userInfo),
 		Host:     host,
+		Path:     "/",
+		RawQuery: q.Encode(),
 		Fragment: cfg.Config.Name,
 	}
-	if p := ss.Outline.Prefix; p != "" {
-		u.RawQuery = "prefix=" + escapePrefixBytes(p)
-	}
 	return u.String(), nil
-}
-
-// escapePrefixBytes percent-encodes an Outline prefix.
-//
-// The prefix is a byte string that the JSON decoder widened into runes: each
-// rune is one byte of the wire prefix (latin-1), so 0xA8 must travel as %A8.
-// Encoding the string as UTF-8 would emit %C2%A8 and corrupt the handshake.
-func escapePrefixBytes(prefix string) string {
-	var b strings.Builder
-	for _, r := range prefix {
-		if r < 0 || r > 0xFF {
-			// Руна вне latin-1 не может быть частью байтового префикса.
-			continue
-		}
-		// Проверка выше гарантирует 0..0xFF, поэтому конверсия безопасна.
-		c := byte(r) // #nosec G115
-		if shouldEscapePrefixByte(c) {
-			fmt.Fprintf(&b, "%%%02X", c)
-			continue
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
-}
-
-// shouldEscapePrefixByte reports whether c must be percent-encoded in a query
-// value. Unreserved characters (RFC 3986 §2.3) travel as-is.
-func shouldEscapePrefixByte(c byte) bool {
-	switch {
-	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		return false
-	case c == '-', c == '_', c == '.', c == '~':
-		return false
-	default:
-		return true
-	}
 }
 
 // VLESS renders a vless:// link for the Reality endpoint (protocol0).
